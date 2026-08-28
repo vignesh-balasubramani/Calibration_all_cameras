@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  multi-cam-env:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: multi-cam-vision:latest
+    container_name: multi_cam_container
+    network_mode: "host"       # Crucial for Basler GigE discovery and streaming
+    privileged: true           # Required for USB endpoints and socket access
+    ipc: "host"
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      # Forward host's X11 socket for GUI pop-up windows
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Direct two-way bind mount: script edits and recorded media sync instantly
+      - ./:/workspace
+      # Mount hardware device nodes
+      - /dev:/dev
+    stdin_open: true
+    tty: true
