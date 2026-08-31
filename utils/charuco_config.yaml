@@ -1,0 +1,20 @@
+# Target paper specifications
+paper:
+  size: "A4"                  # Options: A4, A3, A2, A1, Letter, Legal
+  orientation: "landscape"    # Options: landscape, portrait
+  dpi: 300
+  margin_mm: 10.0
+
+# Board geometry
+grid:
+  squares_x: 7                # Total chessboard squares along horizontal axis
+  squares_y: 5                # Total chessboard squares along vertical axis
+  marker_ratio: 0.75          # Inner marker size relative to square size (75%)
+
+# Fiducial dictionary
+dictionary:
+  type: "t36h11"              # Options: t36h11, t25h9, t16h5, 4x4_50, 5x5_100, 6x6_250
+
+# Output settings
+output:
+  filename: "charuco_t36h11_A4_target.png"
