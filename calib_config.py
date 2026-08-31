@@ -26,20 +26,20 @@ class CalibCfg:
 
     # ----------------- STREAM CONFIGURATIONS -----------------
     realsense_resolution = HD      # (1280, 720) or VGA (640, 480)
-    realsense_fps = 15
+    realsense_fps = 30
 
     basler_resolution = UHD_4K     # (4096, 2160) or HD (1280, 720)
-    basler_fps = 15
+    basler_fps = 30
 
     # ----------------- CAMERA IDENTIFIERS -----------------
     # 5 Intel RealSense D435 Cameras: Serial Number -> Folder Name
     CAMERAS = {
-        "147122078488": "camera_0",
-        "147122075374": "camera_1",
-        "146322075747": "camera_2",
-        "147122072939": "camera_3",
-        "239722071052": "camera_4",
-    }
+            "948122070553": "camera_6",
+            "147122075374": "camera_4",
+            "146322075747": "camera_5",
+            "147122072939": "camera_2",
+            "239722071052": "camera_0",
+        }
 
     # Basler ace 2 GigE Camera: IP / Serial -> Folder Name
     USE_BASLER = True
