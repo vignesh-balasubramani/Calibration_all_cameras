@@ -3,7 +3,7 @@ import os
 import cv2
 import numpy as np
 import yaml
-from calib_config import CalibCfg
+from calibration_test.src.calib_config import CalibCfg
 
 EXTRINSICS_YAML = os.path.join(CalibCfg.CALIB_DIR, "yaml", "workstation_extrinsics.yaml")
 INTRINSICS_DIR = os.path.join(CalibCfg.CALIB_DIR, "yaml")
