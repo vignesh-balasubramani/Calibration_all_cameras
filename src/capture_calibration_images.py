@@ -3,40 +3,17 @@ import os
 import sys
 import cv2
 import numpy as np
-import pyrealsense2 as rs
 from pypylon import pylon
 from calib_config import CalibCfg
-
-
-def get_detector():
-    dictionary = cv2.aruco.getPredefinedDictionary(CalibCfg.DICT_TYPE)
-    board = cv2.aruco.CharucoBoard(
-        (CalibCfg.SQUARES_X, CalibCfg.SQUARES_Y),
-        CalibCfg.SQUARE_LENGTH_M,
-        CalibCfg.MARKER_LENGTH_M,
-        dictionary
-    )
-    detector = cv2.aruco.CharucoDetector(board, cv2.aruco.CharucoParameters(), cv2.aruco.DetectorParameters())
-    return detector, board
+from camera_io import build_charuco_detector, open_realsense_pipeline, open_basler_camera
 
 
 def capture_realsense(serial: str, cam_name: str, detector):
     save_dir = os.path.join(CalibCfg.CALIB_DIR, "images", cam_name)
     os.makedirs(save_dir, exist_ok=True)
 
-    pipeline = rs.pipeline()
-    config = rs.config()
-    config.enable_device(serial)
-    config.enable_stream(
-        rs.stream.color,
-        CalibCfg.realsense_resolution[0],
-        CalibCfg.realsense_resolution[1],
-        rs.format.bgr8,
-        CalibCfg.realsense_fps
-    )
-
     try:
-        pipeline.start(config)
+        pipeline = open_realsense_pipeline(serial)
     except Exception as e:
         print(f"[ERROR] Failed to start RealSense {cam_name} ({serial}): {e}")
         return
@@ -101,59 +78,11 @@ def capture_basler(target_id: str, cam_name: str, detector):
     save_dir = os.path.join(CalibCfg.CALIB_DIR, "images", cam_name)
     os.makedirs(save_dir, exist_ok=True)
 
-    tl_factory = pylon.TlFactory.GetInstance()
-    if "." in target_id:
-        info = pylon.DeviceInfo()
-        info.SetPropertyValue("IpAddress", target_id)
-        camera = pylon.InstantCamera(tl_factory.CreateDevice(info))
-    else:
-        info = pylon.DeviceInfo()
-        info.SetSerialNumber(target_id)
-        camera = pylon.InstantCamera(tl_factory.CreateDevice(info))
-
     try:
-        camera.Open()
-        if camera.IsGrabbing():
-                    camera.StopGrabbing()
-        
-            # ----------------- 1. RESOLUTION / ROI -----------------
-        if hasattr(camera, "OffsetX"):
-            camera.OffsetX.SetValue(0)
-        if hasattr(camera, "OffsetY"):
-            camera.OffsetY.SetValue(0)
-
-        target_w, target_h = CalibCfg.basler_resolution
-        max_w = camera.Width.GetMax()
-        max_h = camera.Height.GetMax()
-
-        camera.Width.SetValue(target_w)
-        camera.Height.SetValue(target_h)
-
-        off_x = (max_w - target_w) // 2
-        off_y = (max_h - target_h) // 2
-        if hasattr(camera, "OffsetX"):
-            inc_x = camera.OffsetX.GetInc()
-            camera.OffsetX.SetValue((off_x // inc_x) * inc_x)
-        if hasattr(camera, "OffsetY"):
-            inc_y = camera.OffsetY.GetInc()
-            camera.OffsetY.SetValue((off_y // inc_y) * inc_y)
-        camera.Height.SetValue(target_h)
-
-        off_x = (max_w - target_w) // 2
-        off_y = (max_h - target_h) // 2
-        if hasattr(camera, "OffsetX"):
-            inc_x = camera.OffsetX.GetInc()
-            camera.OffsetX.SetValue((off_x // inc_x) * inc_x)
-        if hasattr(camera, "OffsetY"):
-            inc_y = camera.OffsetY.GetInc()
-            camera.OffsetY.SetValue((off_y // inc_y) * inc_y)
-        camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        camera, converter = open_basler_camera(target_id)
     except Exception as e:
         print(f"[ERROR] Failed to connect to Basler {cam_name} ({target_id}): {e}")
         return
-
-    converter = pylon.ImageFormatConverter()
-    converter.OutputPixelFormat = pylon.PixelType_BGR8packed
 
     print("=" * 60)
     print(f"Active Camera: {cam_name} (Basler: {target_id})")
@@ -215,13 +144,11 @@ def capture_basler(target_id: str, cam_name: str, detector):
 
 
 def main():
-    detector, _ = get_detector()
+    detector, _ = build_charuco_detector()
 
-    # 1. Capture RealSense cameras sequentially
     for serial, cam_name in CalibCfg.CAMERAS.items():
         capture_realsense(serial, cam_name, detector)
 
-    # 2. Capture Basler camera
     if CalibCfg.USE_BASLER:
         for target_id, cam_name in CalibCfg.BASLER_CAMERAS.items():
             capture_basler(target_id, cam_name, detector)
