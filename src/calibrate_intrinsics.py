@@ -3,11 +3,12 @@ import os
 import glob
 import cv2
 import numpy as np
-import yaml
 from calib_config import CalibCfg
+from camera_io import build_charuco_detector
+from json_io import to_json
 
 
-def calibrate_single_camera(cam_name: str, image_dir: str, output_yaml: str):
+def calibrate_single_camera(cam_name: str, image_dir: str, output_json: str):
     image_pattern = os.path.join(image_dir, f"*.{CalibCfg.IMAGE_EXT}")
     images = sorted(glob.glob(image_pattern))
 
@@ -15,14 +16,7 @@ def calibrate_single_camera(cam_name: str, image_dir: str, output_yaml: str):
         print(f"[{cam_name}] No images found in {image_dir}. Skipping.")
         return
 
-    dictionary = cv2.aruco.getPredefinedDictionary(CalibCfg.DICT_TYPE)
-    board = cv2.aruco.CharucoBoard(
-        (CalibCfg.SQUARES_X, CalibCfg.SQUARES_Y),
-        CalibCfg.SQUARE_LENGTH_M,
-        CalibCfg.MARKER_LENGTH_M,
-        dictionary
-    )
-    detector = cv2.aruco.CharucoDetector(board, cv2.aruco.CharucoParameters(), cv2.aruco.DetectorParameters())
+    detector, board = build_charuco_detector()
 
     all_corners = []
     all_ids = []
@@ -87,50 +81,35 @@ def calibrate_single_camera(cam_name: str, image_dir: str, output_yaml: str):
     print(f"  Distortion Model:       {'rational_polynomial' if calib_flags == cv2.CALIB_RATIONAL_MODEL else 'plumb_bob'}")
     print("-" * 55)
 
-    # Export to YAML in standard format
+    # Matches the camera.json schema written by mvs_extrinsic_calib (camera_matrix,
+    # distortion_coeff, camera). The pose fields (t_param, r_param, rotation_matrix,
+    # projection_matrix) get added to this same file by calibrate_extrinsics.py.
     calib_dict = {
-        "camera_name": cam_name,
-        "image_width": int(image_size[0]),
-        "image_height": int(image_size[1]),
-        "reprojection_error_rms": float(rep_error),
-        "camera_matrix": {
-            "rows": 3,
-            "cols": 3,
-            "data": [float(x) for x in camera_matrix.flatten()]
-        },
-        "distortion_model": "rational_polynomial" if calib_flags == cv2.CALIB_RATIONAL_MODEL else "plumb_bob",
-        "distortion_coefficients": {
-            "rows": 1,
-            "cols": int(dist_coeffs.size),
-            "data": [float(x) for x in dist_coeffs.flatten()]
-        }
+        "camera_matrix": camera_matrix.tolist(),
+        "distortion_coeff": dist_coeffs.flatten().tolist(),
+        "camera": cam_name,
     }
 
-    os.makedirs(os.path.dirname(output_yaml), exist_ok=True)
-    with open(output_yaml, "w") as f:
-        yaml.dump(calib_dict, f, default_flow_style=False)
+    os.makedirs(os.path.dirname(output_json), exist_ok=True)
+    to_json(output_json, calib_dict)
 
-    print(f"[{cam_name}] Saved YAML: {output_yaml}")
+    print(f"[{cam_name}] Saved: {output_json}")
 
 
 def main():
-    yaml_dir = os.path.join(CalibCfg.CALIB_DIR, "yaml")
-    os.makedirs(yaml_dir, exist_ok=True)
-
-    # 1. Calibrate RealSense cameras
     for _, cam_name in CalibCfg.CAMERAS.items():
         img_dir = os.path.join(CalibCfg.CALIB_DIR, "images", cam_name)
-        out_yaml = os.path.join(yaml_dir, f"{cam_name}_intrinsics.yaml")
-        calibrate_single_camera(cam_name, img_dir, out_yaml)
+        out_json = os.path.join(img_dir, "camera.json")
+        calibrate_single_camera(cam_name, img_dir, out_json)
 
-    # 2. Calibrate Basler camera
     if CalibCfg.USE_BASLER:
         for _, cam_name in CalibCfg.BASLER_CAMERAS.items():
             img_dir = os.path.join(CalibCfg.CALIB_DIR, "images", cam_name)
-            out_yaml = os.path.join(yaml_dir, f"{cam_name}_intrinsics.yaml")
-            calibrate_single_camera(cam_name, img_dir, out_yaml)
+            out_json = os.path.join(img_dir, "camera.json")
+            calibrate_single_camera(cam_name, img_dir, out_json)
 
-    print("\n[SUCCESS] All cameras calibrated. YAML files are available in:", os.path.abspath(yaml_dir))
+    print("\n[SUCCESS] All cameras calibrated. camera.json files are available under:",
+          os.path.abspath(os.path.join(CalibCfg.CALIB_DIR, "images")))
 
 
 if __name__ == "__main__":
