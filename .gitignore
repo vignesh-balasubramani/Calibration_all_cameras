@@ -1,84 +1,27 @@
-# ==========================================
-# Calibration Datasets & Image Artifacts
-# ==========================================
-# Ignore captured raw and preview frames
-calibration_images/
+# Calibration data (rig-specific, regenerate with the pipeline)
+calibration_data/
+*.npy
+
+# Generated board printouts (recreate with utils/generate_charuco_board.py)
+utils/*.pdf
+
+# Raw image dumps - except the curated figures used by the docs
 *.png
 *.jpg
 *.jpeg
-*.bmp
-*.tiff
-*.tif
+!docs/**/*.png
+!docs/**/*.jpg
 
-# Ignore rendered printouts & reports
-*.pdf
-
-# Preserve essential visual assets if needed in docs (uncomment if applicable)
-# !docs/**/*.png
-# !docs/**/*.pdf
-
-# ==========================================
-# Python & Bytecode Caches
-# ==========================================
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-
-# ==========================================
-# Virtual Environments
-# ==========================================
-venv/
+.pytest_cache/
 .venv/
-env/
-.env/
-ENV/
-env.bak/
-venv.bak/
+venv/
 
-# ==========================================
-# IDE & Editor Configurations
-# ==========================================
+# Editors / OS
 .vscode/
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
 .idea/
 *.swp
-*.swo
-*~
 .DS_Store
-
-# ==========================================
-# Temporary Files & OS Artifacts
-# ==========================================
-/tmp/
-*.tmp
-*.log
-.directory
-
-# ==========================================
-# Calibration Output (Optional Exception)
-# ==========================================
-# Keep generated YAML intrinsics tracked, ignore other raw dumps
-!*.yaml
-!*.yml
-
-*.npy

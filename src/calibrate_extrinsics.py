@@ -1,100 +1,105 @@
 #!/usr/bin/env python3
-import os
-import json
+"""Step 5: solve every camera's pose relative to the table origin.
+
+For each camera, detects the ChArUco board in its world-origin frame and runs
+`solvePnP`. The pose is added to the camera's `camera.json`, and all cameras are also
+written to one combined `camera_parameter_<timestamp>.json`.
+"""
+from datetime import datetime
+from typing import Tuple
+
 import cv2
 import numpy as np
-from datetime import datetime
-from calib_config import CalibCfg
-from camera_io import build_charuco_detector
-from json_io import to_json, from_json, NumpyEncoder
 
-IMAGES_DIR = os.path.join(CalibCfg.CALIB_DIR, "images")
-ORIGIN_DIR = os.path.join(CalibCfg.CALIB_DIR, "world_origin_raw")
-COMBINED_DIR = os.path.join(CalibCfg.CALIB_DIR, "combined_calibration_data")
+from calib_config import CalibCfg, camera_json_path, camera_names
+from charuco import build_charuco_detector, detect_board
+from geometry import camera_position_in_world
+from json_io import load_camera, to_json
 
 
-def load_intrinsics(cam_name):
-    json_path = os.path.join(IMAGES_DIR, cam_name, "camera.json")
-    if not os.path.exists(json_path):
-        raise FileNotFoundError(f"Missing intrinsics file: {json_path}. Run calibrate_intrinsics.py first.")
-    data = from_json(json_path)
-    K = data["camera_matrix"].astype(np.float64).reshape((3, 3))
-    D = data["distortion_coeff"].astype(np.float64).reshape((-1, 1))
-    return K, D
+class PoseEstimationError(RuntimeError):
+    """The board pose could not be recovered from an image."""
 
 
-def main():
+def estimate_board_pose(image: np.ndarray, K: np.ndarray, D: np.ndarray,
+                        detector, board) -> Tuple[np.ndarray, np.ndarray, float]:
+    """World -> camera pose of the board in `image`.
+
+    Returns (rvec, tvec, rms_px) where rms_px is the RMS reprojection error of the
+    board corners under the recovered pose.
+    """
+    detection = detect_board(detector, image)
+    if not detection.is_valid:
+        raise PoseEstimationError(
+            f"only {detection.count} corners detected (need >= {CalibCfg.MIN_CORNERS})")
+
+    obj_pts, img_pts = board.matchImagePoints(detection.corners, detection.ids)
+    if obj_pts is None or len(obj_pts) < CalibCfg.MIN_CORNERS:
+        raise PoseEstimationError("too few matched 3D-2D point pairs")
+
+    ok, rvec, tvec = cv2.solvePnP(obj_pts, img_pts, K, D, flags=cv2.SOLVEPNP_ITERATIVE)
+    if not ok:
+        raise PoseEstimationError("solvePnP failed")
+
+    projected, _ = cv2.projectPoints(obj_pts, rvec, tvec, K, D)
+    rms = float(np.sqrt(np.mean(np.sum((projected - img_pts) ** 2, axis=-1))))
+    return rvec, tvec, rms
+
+
+def main() -> None:
     detector, board = build_charuco_detector()
-
-    all_cams = list(CalibCfg.CAMERAS.values())
-    if CalibCfg.USE_BASLER:
-        all_cams.extend(list(CalibCfg.BASLER_CAMERAS.values()))
-
     camera_list = []
 
     print("=" * 75)
-    print("SOLVING EXTRINSIC POSES RELATIVE TO WORKSTATION WORLD ORIGIN")
+    print("SOLVING EXTRINSIC POSES RELATIVE TO THE WORKSTATION WORLD ORIGIN")
     print("=" * 75)
 
-    for cam in all_cams:
-        img_path = os.path.join(ORIGIN_DIR, f"{cam}_origin.png")
-        if not os.path.exists(img_path):
-            print(f"[WARN] No origin capture file found for '{cam}' at {img_path}")
+    for cam in camera_names():
+        origin_path = CalibCfg.ORIGIN_DIR / f"{cam}_origin.png"
+        if not origin_path.exists():
+            print(f"[WARN] {cam}: no origin capture at {origin_path}")
             continue
 
-        K, D = load_intrinsics(cam)
-        img = cv2.imread(img_path)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        corners, ids, _, _ = detector.detectBoard(gray)
+        intrinsics = load_camera(cam, "Run calibrate_intrinsics.py first.")
+        K = intrinsics["camera_matrix"].astype(np.float64).reshape(3, 3)
+        D = intrinsics["distortion_coeff"].astype(np.float64).reshape(-1, 1)
 
-        if corners is None or ids is None or len(corners) < CalibCfg.MIN_CORNERS:
-            num = 0 if corners is None else len(corners)
-            print(f"[ERROR] {cam} detected only {num} corners (< {CalibCfg.MIN_CORNERS})")
+        try:
+            rvec, tvec, rms = estimate_board_pose(cv2.imread(str(origin_path)), K, D, detector, board)
+        except PoseEstimationError as exc:
+            print(f"[ERROR] {cam}: {exc}")
             continue
 
-        obj_pts, img_pts = board.matchImagePoints(corners, ids)
-        if obj_pts is None or len(obj_pts) < CalibCfg.MIN_CORNERS:
-            print(f"[ERROR] Insufficient 3D-2D matched points for {cam}")
-            continue
+        R, _ = cv2.Rodrigues(rvec)
+        position = camera_position_in_world(R, tvec)
+        print(f"[{cam}]")
+        print(f"  Camera position in world (X, Y, Z) : "
+              f"[{position[0]:+.3f}, {position[1]:+.3f}, {position[2]:+.3f}] m")
+        print(f"  Height above tabletop (-Z)         : {-position[2]:.3f} m")
+        print(f"  PnP reprojection RMS               : {rms:.3f} px")
 
-        success, rvec, tvec = cv2.solvePnP(obj_pts, img_pts, K, D, flags=cv2.SOLVEPNP_ITERATIVE)
-        if not success:
-            print(f"[ERROR] solvePnP failed for {cam}")
-            continue
-
-        rotation_matrix, _ = cv2.Rodrigues(rvec)
-        projection_matrix = K @ np.hstack((rotation_matrix, tvec.reshape(3, 1)))
-
-        # world -> camera position, for a sanity-check print only
-        T_world_to_cam = np.eye(4, dtype=np.float64)
-        T_world_to_cam[:3, :3] = rotation_matrix
-        T_world_to_cam[:3, 3] = tvec.flatten()
-        cam_pos_world = np.linalg.inv(T_world_to_cam)[:3, 3]
-
-        print(f"[{cam}]:")
-        print(f"  3D Position on Table (x, y, z) : [{cam_pos_world[0]:.3f}, {cam_pos_world[1]:.3f}, {cam_pos_world[2]:.3f}] meters")
-        print(f"  Height above tabletop (Z_w)    : {cam_pos_world[2]:.3f} meters")
-
-        # camera.json now matches mvs_extrinsic_calib's schema exactly: camera_matrix,
-        # distortion_coeff, t_param, r_param, rotation_matrix, projection_matrix, camera
-        camera_json_path = os.path.join(IMAGES_DIR, cam, "camera.json")
         camera_data = {
             "camera_matrix": K.tolist(),
             "distortion_coeff": D.flatten().tolist(),
             "t_param": tvec.reshape(3, 1).tolist(),
             "r_param": rvec.reshape(3, 1).tolist(),
-            "rotation_matrix": rotation_matrix.tolist(),
-            "projection_matrix": projection_matrix.tolist(),
+            "rotation_matrix": R.tolist(),
+            "projection_matrix": (K @ np.hstack((R, tvec.reshape(3, 1)))).tolist(),
             "camera": cam,
         }
-        to_json(camera_json_path, camera_data)
+        to_json(camera_json_path(cam), camera_data)
         camera_list.append(camera_data)
 
-    os.makedirs(COMBINED_DIR, exist_ok=True)
+    if not camera_list:
+        print("[ERROR] No camera poses were solved; nothing written.")
+        return
+
+    now = datetime.now()
     combined = {
         "header": {
-            "created": datetime.now().strftime("%H_%M_%S"),
-            "world_origin_description": "Workstation table corner (ChArUco top-left corner)",
+            "created": now.isoformat(timespec="seconds"),
+            "world_origin_description": "Top-left corner of the ChArUco board on the workstation table",
+            "world_frame": "X along board top edge, Y down board left edge, Z into the table",
             "board": {
                 "squares_x": CalibCfg.SQUARES_X,
                 "squares_y": CalibCfg.SQUARES_Y,
@@ -104,13 +109,13 @@ def main():
         },
         "cameras": camera_list,
     }
-    combined_path = os.path.join(COMBINED_DIR, f"camera_parameter_{datetime.now().strftime('%Y%m%d_%H%M')}.json")
-    with open(combined_path, "w") as f:
-        json.dump(combined, f, cls=NumpyEncoder, indent=4)
+    CalibCfg.COMBINED_DIR.mkdir(parents=True, exist_ok=True)
+    combined_path = CalibCfg.COMBINED_DIR / f"camera_parameter_{now:%Y%m%d_%H%M}.json"
+    to_json(combined_path, combined)
 
     print("-" * 75)
-    print(f"[SUCCESS] Per-camera camera.json files updated under: {os.path.abspath(IMAGES_DIR)}")
-    print(f"[SUCCESS] Combined calibration written to: {combined_path}")
+    print(f"[SUCCESS] {len(camera_list)} camera.json files updated under {CalibCfg.IMAGES_DIR.resolve()}")
+    print(f"[SUCCESS] Combined calibration: {combined_path}")
 
 
 if __name__ == "__main__":
