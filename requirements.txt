@@ -1,0 +1,10 @@
+# Runtime dependencies. Install inside a virtual environment:
+#   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+numpy==1.26.4
+# Install ONLY the contrib build (it ships cv2.aruco). Having opencv-python as well
+# makes the two packages overwrite each other's cv2 module.
+opencv-contrib-python>=4.8.0,<4.11.0
+pyrealsense2          # Intel RealSense D435 capture
+pypylon>=2.0.0        # Basler ace 2 capture
+pyyaml>=6.0           # utils/generate_charuco_board.py
+reportlab>=4.0.0      # utils/generate_charuco_board.py (PDF output)

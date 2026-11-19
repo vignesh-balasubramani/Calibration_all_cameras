@@ -1,0 +1,20 @@
+services:
+  calibration:
+    build:
+      context: ..                       # repository root, so requirements.txt is in scope
+      dockerfile: docker/Dockerfile
+    image: calibration-test:latest
+    container_name: calibration_container
+    working_dir: /workspace/src
+    network_mode: host                  # Basler GigE discovery/streaming needs the host network
+    privileged: true                    # raw USB access for RealSense
+    ipc: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw   # preview windows
+      - ..:/workspace                      # live-mounted repo; calibration_data/ lands here
+      - /dev:/dev                          # camera device nodes
+    stdin_open: true
+    tty: true
