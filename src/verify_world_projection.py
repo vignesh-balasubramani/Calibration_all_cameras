@@ -1,67 +1,51 @@
 #!/usr/bin/env python3
-import os
+"""Step 6: sanity-check a camera's extrinsics by deprojecting a pixel into world coordinates.
+
+By default this takes the principal point at 1 m depth, which lies on the optical axis,
+so the printed world point should be exactly `--depth` metres in front of the camera.
+For a camera looking down at the table, expect its Z_w to be negative (world +Z points
+into the table) and the deprojected point's Z_w to be closer to 0.
+
+Example:
+    python verify_world_projection.py --camera camera_0 --pixel 640 360 --depth 0.8
+"""
+import argparse
+
 import numpy as np
-from calib_config import CalibCfg
-from json_io import from_json
 
-IMAGES_DIR = os.path.join(CalibCfg.CALIB_DIR, "images")
-
-
-def load_camera(cam_name):
-    json_path = os.path.join(IMAGES_DIR, cam_name, "camera.json")
-    if not os.path.exists(json_path):
-        raise FileNotFoundError(f"Missing camera.json for '{cam_name}': {json_path}. Run calibrate_extrinsics.py first.")
-    return from_json(json_path)
+from calib_config import camera_names
+from geometry import camera_to_world_matrix, pixel_to_world
+from json_io import load_camera
 
 
-def cam_to_world_transform(camera_data):
-    """Builds T_cam_to_world from the stored rotation_matrix/t_param (world -> camera)."""
-    R = camera_data["rotation_matrix"].astype(np.float64).reshape(3, 3)
-    t = camera_data["t_param"].astype(np.float64).reshape(3)
-
-    T_world_to_cam = np.eye(4, dtype=np.float64)
-    T_world_to_cam[:3, :3] = R
-    T_world_to_cam[:3, 3] = t
-
-    return np.linalg.inv(T_world_to_cam)
-
-
-def pixel_to_world(u: int, v: int, depth_m: float, K: np.ndarray, T_cam_to_world: np.ndarray):
-    """
-    Transforms a 2D pixel (u, v) and depth value Z_c into 3D Workstation World coordinates.
-    """
-    fx, fy = K[0, 0], K[1, 1]
-    cx, cy = K[0, 2], K[1, 2]
-
-    # Deproject to 3D Camera Frame
-    X_c = (u - cx) * depth_m / fx
-    Y_c = (v - cy) * depth_m / fy
-    Z_c = depth_m
-
-    P_camera = np.array([X_c, Y_c, Z_c, 1.0], dtype=np.float64)
-
-    # Transform to Workstation World Frame
-    P_world = T_cam_to_world @ P_camera
-    return P_world[:3]  # (X_w, Y_w, Z_w)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--camera", default=camera_names()[0],
+                        help="camera name as it appears in calib_config.py (default: first configured)")
+    parser.add_argument("--pixel", nargs=2, type=float, metavar=("U", "V"),
+                        help="pixel to deproject (default: the principal point)")
+    parser.add_argument("--depth", type=float, default=1.0,
+                        help="depth along the optical axis, in metres (default: 1.0)")
+    return parser.parse_args()
 
 
-def main():
-    target_cam = "camera_0"
+def main() -> None:
+    args = parse_args()
+    camera = load_camera(args.camera, "Run calibrate_extrinsics.py first.")
+    K = camera["camera_matrix"].astype(np.float64).reshape(3, 3)
+    R = camera["rotation_matrix"].astype(np.float64).reshape(3, 3)
+    t = camera["t_param"].astype(np.float64).reshape(3)
+
+    u, v = args.pixel if args.pixel else (K[0, 2], K[1, 2])
+    T_cam_to_world = camera_to_world_matrix(R, t)
+    point = pixel_to_world(u, v, args.depth, K, T_cam_to_world)
+
     print("=" * 65)
-    print("MULTI-CAMERA WORLD COORDINATE CONVERTER")
+    print(f"[{args.camera}] pixel ({u:.1f}, {v:.1f}) at depth {args.depth:.3f} m")
+    print(f"  Camera position in world: {np.round(T_cam_to_world[:3, 3], 3).tolist()} m")
+    print(f"  World point (X, Y, Z):    {np.round(point, 3).tolist()} m")
+    print(f"  Height above tabletop:    {-point[2]:.3f} m  (= -Z; world +Z points into the table)")
     print("=" * 65)
-
-    camera_data = load_camera(target_cam)
-    K = camera_data["camera_matrix"].astype(np.float64).reshape(3, 3)
-    T_cam_to_world = cam_to_world_transform(camera_data)
-
-    u_center, v_center = int(K[0, 2]), int(K[1, 2])
-    test_depth_m = 1.000  # 1 meter forward along optical axis
-
-    P_w = pixel_to_world(u_center, v_center, test_depth_m, K, T_cam_to_world)
-    print(f"Sample Projection for [{target_cam}]:")
-    print(f"  Pixel: ({u_center}, {v_center}) with Depth: {test_depth_m:.3f} m")
-    print(f"  -> World Coordinate (Table X, Table Y, Height Z): [{P_w[0]:.3f}, {P_w[1]:.3f}, {P_w[2]:.3f}] meters\n")
 
 
 if __name__ == "__main__":

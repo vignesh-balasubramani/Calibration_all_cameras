@@ -1,20 +1,18 @@
-# Target paper specifications
+# Print-ready ChArUco target settings, consumed by generate_charuco_board.py
+
 paper:
-  size: "A4"                  # Options: A4, A3, A2, A1, Letter, Legal
-  orientation: "landscape"    # Options: landscape, portrait
-  dpi: 300
-  margin_mm: 10.0
+  size: "A4"                  # A4 | A3 | Letter
+  orientation: "landscape"    # landscape | portrait
+  dpi: 600                    # raster resolution of the board image inside the PDF
+  margin_mm: 10.0             # white border kept free on every side of the page
 
-# Board geometry
 grid:
-  squares_x: 7                # Total chessboard squares along horizontal axis
-  squares_y: 5                # Total chessboard squares along vertical axis
-  marker_ratio: 0.75          # Inner marker size relative to square size (75%)
+  squares_x: 7                # chessboard squares along the horizontal axis
+  squares_y: 5                # chessboard squares along the vertical axis
+  marker_ratio: 0.75          # marker side as a fraction of the square side
 
-# Fiducial dictionary
 dictionary:
-  type: "t36h11"              # Options: t36h11, t25h9, t16h5, 4x4_50, 5x5_100, 6x6_250
+  type: "t36h11"              # t36h11 | t25h9 | t16h5 | 4x4_50 | 5x5_100 | 6x6_250
 
-# Output settings
 output:
-  filename: "charuco_t36h11_A4_target.png"
+  filename: "charuco_t36h11_A4_target.pdf"   # written next to this file unless --output is given
